@@ -30,4 +30,11 @@ protected:
 	afx_msg void OnPaint();
 	afx_msg HCURSOR OnQueryDragIcon();
 	DECLARE_MESSAGE_MAP()
+public:
+	UINT ThreadNum;
+	UINT m_port;
+	SOCKADDR_IN servAdr{};
+	afx_msg void OnBnClickedButton1();
+	virtual LRESULT WindowProc(UINT message, WPARAM wParam, LPARAM lParam);
+	DWORD m_ip;
 };

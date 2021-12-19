@@ -12,6 +12,34 @@
 #define new DEBUG_NEW
 #endif
 
+UINT __cdecl WorkThreadFunction(LPVOID pParam) {
+	CEchoclientDlg* pdlg = (CEchoclientDlg*)pParam;
+
+	WSADATA wsaData;
+	if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0)
+	{
+		exit(1);
+	}
+	SOCKET hCommSock = socket(AF_INET, SOCK_STREAM, 0);
+	if (hCommSock == INVALID_SOCKET)
+	{
+		exit(1);
+	}
+
+	if (connect(hCommSock, 
+		(SOCKADDR*)&(pdlg->servAdr), 
+		sizeof(pdlg->servAdr)) == SOCKET_ERROR)//隐式绑定，连接服务器
+	{
+		exit(1);
+	}
+	while (1) {
+
+
+	}
+	closesocket(hCommSock);
+	WSACleanup();
+	return 0;
+}
 
 // CEchoclientDlg 对话框
 
@@ -19,6 +47,9 @@
 
 CEchoclientDlg::CEchoclientDlg(CWnd* pParent /*=nullptr*/)
 	: CDialogEx(IDD_ECHOCLIENT_DIALOG, pParent)
+	, ThreadNum(30)
+	, m_port(9190)
+	, m_ip(0)
 {
 	m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
 }
@@ -26,11 +57,15 @@ CEchoclientDlg::CEchoclientDlg(CWnd* pParent /*=nullptr*/)
 void CEchoclientDlg::DoDataExchange(CDataExchange* pDX)
 {
 	CDialogEx::DoDataExchange(pDX);
+	DDX_Text(pDX, IDC_TNUM, ThreadNum);
+	DDX_Text(pDX, IDC_PORT, m_port);
+	DDX_IPAddress(pDX, IDC_IPADDRESS1, m_ip);
 }
 
 BEGIN_MESSAGE_MAP(CEchoclientDlg, CDialogEx)
 	ON_WM_PAINT()
 	ON_WM_QUERYDRAGICON()
+	ON_BN_CLICKED(IDC_BUTTON1, &CEchoclientDlg::OnBnClickedButton1)
 END_MESSAGE_MAP()
 
 
@@ -86,3 +121,26 @@ HCURSOR CEchoclientDlg::OnQueryDragIcon()
 	return static_cast<HCURSOR>(m_hIcon);
 }
 
+
+
+void CEchoclientDlg::OnBnClickedButton1()
+{
+	UpdateData(TRUE);
+	servAdr.sin_family = AF_INET;
+	servAdr.sin_addr.s_addr = htonl(m_ip);
+	servAdr.sin_port = htons(m_port);
+
+	for (size_t i = 0; i < ThreadNum; i++)
+	{
+		AfxBeginThread(WorkThreadFunction, (LPVOID)this);
+	}
+	return;
+}
+
+
+LRESULT CEchoclientDlg::WindowProc(UINT message, WPARAM wParam, LPARAM lParam)
+{
+	// TODO: 在此添加专用代码和/或调用基类
+
+	return CDialogEx::WindowProc(message, wParam, lParam);
+}
