@@ -30,4 +30,13 @@ protected:
 	afx_msg void OnPaint();
 	afx_msg HCURSOR OnQueryDragIcon();
 	DECLARE_MESSAGE_MAP()
+
+public:
+	afx_msg void OnBnClickedButton1();
+	virtual LRESULT WindowProc(UINT message, WPARAM wParam, LPARAM lParam);
+	CComboBox m_mode;
+	UINT m_port;
+	UINT m_cur;
+	CListBox m_threads;
+
 };
