@@ -12,63 +12,157 @@
 #define new DEBUG_NEW
 #endif
 
-UINT __cdecl WorkThreadFunction(LPVOID pParam) {
+#define WM_SOCK WM_USER + 100// 自定义消息，为避免冲突，最好100以上
+#define BUF_SIZE 100
+#define MY_MAXSOCK 20
+
+UINT __cdecl WorkThread0(LPVOID pParam) {
 	SOCKET hsocket = (SOCKET)pParam;
+	//阻塞收发
 	return 0;
 }
 
-UINT __cdecl ListenThreadFunction(LPVOID pParam)
+UINT __cdecl ListenThread0(LPVOID pParam)
 {
 	CEchoseverDlg* pdlg = (CEchoseverDlg*)pParam;
-
-	WSADATA wsaData;
-	SOCKADDR_IN servAdr{}, clntAdr{};
-	int len = sizeof(clntAdr);
-	//memset(&servAdr, 0, sizeof(servAdr));
-	//memset(&clntAdr, 0, sizeof(clntAdr));
-	if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0)
-	{
-		exit(1);
-	}
-	servAdr.sin_family = AF_INET;
-	servAdr.sin_addr.s_addr = htonl(INADDR_ANY);
-	servAdr.sin_port = htons(pdlg->m_port);
-	SOCKET hListenSock;
-	hListenSock = socket(AF_INET, SOCK_STREAM, 0);
-	if (hListenSock == INVALID_SOCKET)
-	{
-		exit(1);
-	}
-	if (bind(hListenSock, (SOCKADDR*)&servAdr, sizeof(servAdr)) == SOCKET_ERROR)
-	{
-		exit(1);
-	}
-	if (listen(hListenSock, 5) == SOCKET_ERROR)//立即返回
-	{
-		exit(1);
-	}
+	//阻塞监听，节省CPU
 	SOCKET hCommSock;
+	SOCKADDR_IN clntAdr{};
+	int len = sizeof(clntAdr);
+	
 	while (1) {
-		hCommSock = accept(hListenSock, (sockaddr*)&clntAdr, &len);//阻塞！
+		hCommSock = accept(pdlg->hServSock, (sockaddr*)&clntAdr, &len);//阻塞！
 		if (hCommSock == SOCKET_ERROR)
 		{
-			closesocket(hListenSock);
+			closesocket(pdlg->hServSock);
 			break;
 		}
-		else
+		else //多线程，每个socket一个thread
 		{
-			AfxBeginThread(WorkThreadFunction, (LPVOID)hCommSock);
-			pdlg->m_threads.AddString("work thread");
+			AfxBeginThread(WorkThread0, (LPVOID)hCommSock);
+			pdlg->m_threads.AddString("work thread0");
 		}
 	}
-
-	closesocket(hListenSock);
-	WSACleanup();
+	//closesocket(pdlg->hServSock);
 	return 0;
 }
+UINT __cdecl ListenThread2(LPVOID pParam) {
+	CEchoseverDlg* pdlg = (CEchoseverDlg*)pParam;
+
+	
+	SOCKET hClntSock = 0;
+	SOCKADDR_IN clntAdr{};
+	int clntAdrLen = sizeof(clntAdr);
+
+	SOCKET hSockArr[MY_MAXSOCK]{};
+	WSAEVENT hEventArr[MY_MAXSOCK]{};//原来是WSA_MAXIMUM_WAIT_EVENTS，64个,想改小点
+	WSAEVENT newEvent;
+	WSANETWORKEVENTS netEvents;
+
+	int numOfClntSock = 0;
+	int strLen, i;
+	int posInfo, startIdx;
+
+	char msg[BUF_SIZE];
+
+	newEvent = WSACreateEvent();
+	if (WSAEventSelect(pdlg->hServSock, newEvent, FD_ACCEPT) == SOCKET_ERROR)
+		ErrorHandling("WSAEventSelect() error");
+
+	hSockArr[numOfClntSock] = pdlg->hServSock;
+	hEventArr[numOfClntSock] = newEvent;
+	numOfClntSock++;
+
+	while (1)
+	{
+		posInfo = WSAWaitForMultipleEvents(
+			numOfClntSock, hEventArr, FALSE, WSA_INFINITE, FALSE);
+		startIdx = posInfo - WSA_WAIT_EVENT_0;
+		if (startIdx == 0) //因为只注册了FD_ACCEPT，说明需要accept，单独处理
+		{
+			if (numOfClntSock == MY_MAXSOCK) 
+			{
+				//如果溢出，开其它线程继续接收连接，把S_socket用0代替，取消注册，但不能删除，只让它在此线程中它沉默
+				//但允许处理数据
+				AfxBeginThread(ListenThread2, pParam);
+				pdlg->m_threads.AddString("listen thread2");
+
+				WSAEventSelect(pdlg->hServSock, newEvent, 0);//取消注册
+				WSACloseEvent(hEventArr[0]);//关闭事件
+				hSockArr[0] = 0;
+				hEventArr[0] = 0;
+			}
+			else 
+			{	//如果不溢出，就正常接收
+				WSAEnumNetworkEvents(
+					hSockArr[0], hEventArr[0], &netEvents);
+
+				if (netEvents.lNetworkEvents & FD_ACCEPT)
+				{
+					if (netEvents.iErrorCode[FD_ACCEPT_BIT] != 0)
+					{
+						TRACE("Accept Error");
+						break;
+					}
+					hClntSock = accept(
+						hSockArr[0], (SOCKADDR*)&clntAdr, &clntAdrLen);
+					newEvent = WSACreateEvent();
+					WSAEventSelect(hClntSock, newEvent, FD_READ | FD_CLOSE);
+
+					hEventArr[numOfClntSock] = newEvent;
+					hSockArr[numOfClntSock] = hClntSock;
+					numOfClntSock++;
+					TRACE("connected new client...");
+				}
+			}
+			startIdx = 1;//1
+		}
+		for (i = startIdx; i < numOfClntSock; i++)
+		{
+			int sigEventIdx =
+				WSAWaitForMultipleEvents(1, &hEventArr[i], TRUE, 0, FALSE);
+			if ((sigEventIdx == WSA_WAIT_FAILED || sigEventIdx == WSA_WAIT_TIMEOUT))
+			{
+				continue;
+			}
+			else
+			{
+				sigEventIdx = i;
+				WSAEnumNetworkEvents(
+					hSockArr[sigEventIdx], hEventArr[sigEventIdx], &netEvents);
+				
+				if (netEvents.lNetworkEvents & FD_READ)
+				{
+					if (netEvents.iErrorCode[FD_READ_BIT] != 0)
+					{
+						TRACE("Read Error");
+						break;
+					}
+					strLen = recv(hSockArr[sigEventIdx], msg, sizeof(msg), 0);
+					send(hSockArr[sigEventIdx], msg, strLen, 0);
+				}
+
+				if (netEvents.lNetworkEvents & FD_CLOSE)
+				{
+					if (netEvents.iErrorCode[FD_CLOSE_BIT] != 0)
+					{
+						TRACE("Close Error");
+						break;
+					}
+					WSACloseEvent(hEventArr[sigEventIdx]);
+					closesocket(hSockArr[sigEventIdx]);
+
+					numOfClntSock--;//一般情况下不会溢出的
+					CompressSockets(hSockArr, sigEventIdx, numOfClntSock);
+					CompressEvents(hEventArr, sigEventIdx, numOfClntSock);
+				}
+			}
+		}
+	}
+	return 0;
+}
+
 // CEchoseverDlg 对话框
-
-
 
 CEchoseverDlg::CEchoseverDlg(CWnd* pParent /*=nullptr*/)
 	: CDialogEx(IDD_ECHOSEVER_DIALOG, pParent)
@@ -76,6 +170,12 @@ CEchoseverDlg::CEchoseverDlg(CWnd* pParent /*=nullptr*/)
 	, m_cur(0)
 {
 	m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
+}
+
+CEchoseverDlg::~CEchoseverDlg()
+{
+	closesocket(hServSock);
+	WSACleanup();
 }
 
 void CEchoseverDlg::DoDataExchange(CDataExchange* pDX)
@@ -155,18 +255,39 @@ void CEchoseverDlg::OnBnClickedButton1()
 	UpdateData(1);
 	m_cur = m_mode.GetCurSel();
 
+	servAdr.sin_family = AF_INET;
+	servAdr.sin_addr.s_addr = htonl(INADDR_ANY);
+	servAdr.sin_port = htons(m_port);
+
+	if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0)
+		ErrorHandling("WSAStartup() error!");
+
+	hServSock = socket(AF_INET, SOCK_STREAM, 0);
+	if (hServSock == INVALID_SOCKET)
+		ErrorHandling("INVALID_SOCKET");
+	if (bind(hServSock, (SOCKADDR*)&(servAdr), sizeof(servAdr)) == SOCKET_ERROR)
+		ErrorHandling("bind() error");
+	if (listen(hServSock, 5) == SOCKET_ERROR)
+		ErrorHandling("listen() error");
 
 	switch (m_cur)
 	{
 	case 0://多线程,先创建一个监听线程
 	{
-		AfxBeginThread(ListenThreadFunction, (LPVOID)this);
-		m_threads.AddString("listen thread");
+		AfxBeginThread(ListenThread0, (LPVOID)this);
+		m_threads.AddString("listen thread0");
 	}
 		break;
 	case 1://select
+	{
+		WSAAsyncSelect(hServSock, m_hWnd, WM_SOCK, FD_ACCEPT | FD_READ | FD_CLOSE);
+	}
 		break;
-	case 2://多线程+select
+	case 2://多线程+select  开启多个线程，每个线程里用slect，获得更大的服务量！
+	{
+		AfxBeginThread(ListenThread2, (LPVOID)this);
+		m_threads.AddString("listen thread2");
+	}
 		break;
 	default:
 		break;
@@ -179,7 +300,7 @@ LRESULT CEchoseverDlg::WindowProc(UINT message, WPARAM wParam, LPARAM lParam)
 	// TODO: 在此添加专用代码和/或调用基类
 	switch (m_cur)
 	{
-	case 0://多线程
+	case 0://多线程，不处理
 		break;
 	case 1://select
 		break;
