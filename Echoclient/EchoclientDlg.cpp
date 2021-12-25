@@ -8,6 +8,8 @@
 #include "EchoclientDlg.h"
 #include "afxdialogex.h"
 
+#define BUF_SIZE 256
+constexpr auto MAX_TIMES = 65536*1024;
 #ifdef _DEBUG
 #define new DEBUG_NEW
 #endif
@@ -32,8 +34,38 @@ UINT __cdecl WorkThreadFunction(LPVOID pParam) {
 	{
 		exit(1);
 	}
-	while (1) {
-
+	std::default_random_engine e;
+	char msg[BUF_SIZE];
+	int sendLen = 0, recvLen = 0;
+	for (size_t i = 0; i < MAX_TIMES; i++)
+	{
+		using namespace std::chrono;
+		sprintf_s(msg, "%d", e());
+		//假定随机数小于BUF_SIZE，可以一次发完
+		sendLen = send(hCommSock, msg, sizeof(msg), 0);
+		auto t1 = steady_clock::now();
+		if (sendLen <= 0) {
+			TRACE("send error");
+		}
+		//但一次不一定可以收完
+		int tmp = 0;
+		do
+		{
+			tmp = recv(hCommSock, msg, sizeof(msg), 0);
+			if (tmp > 0)recvLen += tmp;
+			else TRACE("waiting");
+		} while (recvLen < sendLen);
+		//记录时间和流量
+		auto t2 = steady_clock::now();
+		auto time_span = duration_cast<microseconds>(t2 - t1);//精确到微秒级
+		double s_MB = sendLen * static_cast<double>(8) / 1024 / 1024;
+		double m_rate = s_MB / (double(time_span.count()) * microseconds::period::num / microseconds::period::den);
+		pdlg->critical_section.Lock();
+		//pdlg->SendRate.push_back(m_rate);
+		char rate[20];
+		sprintf_s(rate, "%f MB/s", m_rate);
+		pdlg->m_RateList.AddString(rate);
+		pdlg->critical_section.Unlock();
 
 	}
 	closesocket(hCommSock);
@@ -49,7 +81,7 @@ CEchoclientDlg::CEchoclientDlg(CWnd* pParent /*=nullptr*/)
 	: CDialogEx(IDD_ECHOCLIENT_DIALOG, pParent)
 	, ThreadNum(30)
 	, m_port(9190)
-	, m_ip(0)
+	, m_ip(0x7f000001)
 {
 	m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
 }
@@ -60,6 +92,7 @@ void CEchoclientDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Text(pDX, IDC_TNUM, ThreadNum);
 	DDX_Text(pDX, IDC_PORT, m_port);
 	DDX_IPAddress(pDX, IDC_IPADDRESS1, m_ip);
+	DDX_Control(pDX, IDC_LIST2, m_RateList);
 }
 
 BEGIN_MESSAGE_MAP(CEchoclientDlg, CDialogEx)
@@ -129,7 +162,7 @@ void CEchoclientDlg::OnBnClickedButton1()
 	servAdr.sin_family = AF_INET;
 	servAdr.sin_addr.s_addr = htonl(m_ip);
 	servAdr.sin_port = htons(m_port);
-
+	SendRate.clear();
 	for (size_t i = 0; i < ThreadNum; i++)
 	{
 		AfxBeginThread(WorkThreadFunction, (LPVOID)this);

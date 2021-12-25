@@ -3,8 +3,9 @@
 //
 
 #pragma once
-
-
+#include <random>
+#include <chrono>
+#include <vector>
 // CEchoclientDlg 对话框
 class CEchoclientDlg : public CDialogEx
 {
@@ -37,4 +38,7 @@ public:
 	afx_msg void OnBnClickedButton1();
 	virtual LRESULT WindowProc(UINT message, WPARAM wParam, LPARAM lParam);
 	DWORD m_ip;
+	std::vector<double> SendRate;
+	CCriticalSection critical_section;
+	CListBox m_RateList;
 };
