@@ -44,6 +44,8 @@ public:
 	SOCKET hServSock;
 };
 
+//volatile bool flag;
+
 inline void CompressSockets(SOCKET hSockArr[], int idx, int total)
 {
 	int i;

@@ -13,12 +13,18 @@
 #endif
 
 #define WM_SOCK WM_USER + 100// 自定义消息，为避免冲突，最好100以上
-#define BUF_SIZE 100
+#define BUF_SIZE 256
 #define MY_MAXSOCK 20
 
 UINT __cdecl WorkThread0(LPVOID pParam) {
 	SOCKET hsocket = (SOCKET)pParam;
+	char msg[BUF_SIZE];
+	int strLen;
 	//阻塞收发
+	while (1) {
+		strLen = recv(hsocket, msg, sizeof(msg), 0);
+		send(hsocket, msg, strLen, 0);
+	}
 	return 0;
 }
 
@@ -138,8 +144,11 @@ UINT __cdecl ListenThread2(LPVOID pParam) {
 						TRACE("Read Error");
 						break;
 					}
-					strLen = recv(hSockArr[sigEventIdx], msg, sizeof(msg), 0);
-					send(hSockArr[sigEventIdx], msg, strLen, 0);
+					//非阻塞模式，边沿触发吗？不是，一次能收完吗
+					do{
+						strLen = recv(hSockArr[sigEventIdx], msg, sizeof(msg), 0);
+						send(hSockArr[sigEventIdx], msg, strLen, 0);
+					} while (strLen > 0);
 				}
 
 				if (netEvents.lNetworkEvents & FD_CLOSE)
@@ -281,6 +290,7 @@ void CEchoseverDlg::OnBnClickedButton1()
 	case 1://select
 	{
 		WSAAsyncSelect(hServSock, m_hWnd, WM_SOCK, FD_ACCEPT | FD_READ | FD_CLOSE);
+		m_threads.AddString("listen socket");
 	}
 		break;
 	case 2://多线程+select  开启多个线程，每个线程里用slect，获得更大的服务量！
@@ -297,17 +307,52 @@ void CEchoseverDlg::OnBnClickedButton1()
 
 LRESULT CEchoseverDlg::WindowProc(UINT message, WPARAM wParam, LPARAM lParam)
 {
+	SOCKET hSocket;
+	int newEvent;
 	// TODO: 在此添加专用代码和/或调用基类
 	switch (m_cur)
 	{
-	case 0://多线程，不处理
-		break;
 	case 1://select
-		break;
-	case 2://多线程+select
-		break;
-	default:
-		break;
+	{
+		switch (message)
+		{
+		case WM_SOCK:
+			hSocket = (SOCKET)LOWORD(wParam);
+			newEvent = LOWORD(lParam);
+			switch (newEvent)
+			{
+			case FD_ACCEPT:
+			{
+				SOCKET hClntSock = 0;
+				SOCKADDR_IN clntAdr{};
+				int clntAdrLen = sizeof(clntAdr);
+				hClntSock = accept(hSocket, (sockaddr*)&clntAdr, &clntAdrLen);
+				if (hClntSock == SOCKET_ERROR)
+				{
+					closesocket(hSocket);
+					break;
+				}
+				m_threads.AddString("ClntSock");
+			}
+				break;
+			case FD_READ:
+			{
+				int strLen = 0;
+				char msg[BUF_SIZE];
+				do {
+					strLen = recv(hSocket, msg, sizeof(msg), 0);
+					send(hSocket, msg, strLen, 0);
+				} while (strLen > 0);
+			}
+				break;
+			case FD_CLOSE:
+				closesocket(hSocket);
+				break;
+			}
+			break;//中断的是case WM_SOCK:
+		}
+	}
+		break;//中断的是case 1:
 	}
 	return CDialogEx::WindowProc(message, wParam, lParam);
 }
