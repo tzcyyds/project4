@@ -8,13 +8,15 @@
 #include "EchoclientDlg.h"
 #include "afxdialogex.h"
 
-#define BUF_SIZE 256
-constexpr auto MAX_TIMES = 65536*1024;
+constexpr auto BUF_SIZE = 256;
+constexpr auto MAX_TIMES = 4096;
+constexpr auto MAX_THREAD_NUM = 64;
+
 #ifdef _DEBUG
 #define new DEBUG_NEW
 #endif
 
-UINT __cdecl WorkThreadFunction(LPVOID pParam) {
+UINT __stdcall WorkThreadFunction(LPVOID pParam) {
 	CEchoclientDlg* pdlg = (CEchoclientDlg*)pParam;
 
 	WSADATA wsaData;
@@ -62,9 +64,9 @@ UINT __cdecl WorkThreadFunction(LPVOID pParam) {
 		double m_rate = s_MB / (double(time_span.count()) * microseconds::period::num / microseconds::period::den);
 		pdlg->critical_section.Lock();
 		//pdlg->SendRate.push_back(m_rate);
-		char ratestr[30];
-		sprintf_s(ratestr, "%f MB/s", m_rate);
-		pdlg->m_RateList.AddString(ratestr);
+		char ratestr[20];//这里的缓冲应该足够大，
+		sprintf_s(ratestr, "%.5f MB/s", m_rate);
+		pdlg->m_RateList.AddString((LPCTSTR)ratestr);
 		pdlg->critical_section.Unlock();
 
 	}
@@ -163,9 +165,12 @@ void CEchoclientDlg::OnBnClickedButton1()
 	servAdr.sin_addr.s_addr = htonl(m_ip);
 	servAdr.sin_port = htons(m_port);
 	SendRate.clear();
+	HANDLE handle[MAX_THREAD_NUM]{};
 	for (size_t i = 0; i < ThreadNum; i++)
 	{
-		AfxBeginThread(WorkThreadFunction, (LPVOID)this);
+		handle[i] = (HANDLE)
+			_beginthreadex(NULL, 0, WorkThreadFunction, (LPVOID)this, 0, NULL);
+		//AfxBeginThread(WorkThreadFunction, );
 	}
 	return;
 }

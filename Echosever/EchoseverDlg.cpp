@@ -13,10 +13,10 @@
 #endif
 
 #define WM_SOCK WM_USER + 100// 自定义消息，为避免冲突，最好100以上
-#define BUF_SIZE 256
-#define MY_MAXSOCK 20
+constexpr auto BUF_SIZE = 256;
+constexpr auto MY_MAXSOCK = 20;
 
-UINT __cdecl WorkThread0(LPVOID pParam) {
+UINT __stdcall WorkThread0(LPVOID pParam) {
 	SOCKET hsocket = (SOCKET)pParam;
 	char msg[BUF_SIZE];
 	int strLen;
@@ -28,7 +28,7 @@ UINT __cdecl WorkThread0(LPVOID pParam) {
 	return 0;
 }
 
-UINT __cdecl ListenThread0(LPVOID pParam)
+UINT __stdcall ListenThread0(LPVOID pParam)
 {
 	CEchoseverDlg* pdlg = (CEchoseverDlg*)pParam;
 	//阻塞监听，节省CPU
@@ -45,14 +45,16 @@ UINT __cdecl ListenThread0(LPVOID pParam)
 		}
 		else //多线程，每个socket一个thread
 		{
-			AfxBeginThread(WorkThread0, (LPVOID)hCommSock);
-			pdlg->m_threads.AddString("work thread0");
+			_beginthreadex(NULL, 0, WorkThread0, (LPVOID)hCommSock, 0, NULL);
+			//AfxBeginThread(WorkThread0, (LPVOID)hCommSock);
+			//按理说应该加锁，不过这里问题不大
+			pdlg->m_threads.AddString((LPCTSTR)"work thread0");
 		}
 	}
 	//closesocket(pdlg->hServSock);
 	return 0;
 }
-UINT __cdecl ListenThread2(LPVOID pParam) {
+UINT __stdcall ListenThread2(LPVOID pParam) {
 	CEchoseverDlg* pdlg = (CEchoseverDlg*)pParam;
 
 	
@@ -89,9 +91,10 @@ UINT __cdecl ListenThread2(LPVOID pParam) {
 			if (numOfClntSock == MY_MAXSOCK) 
 			{
 				//如果溢出，开其它线程继续接收连接，把S_socket用0代替，取消注册，但不能删除，只让它在此线程中它沉默
-				//但允许处理数据
-				AfxBeginThread(ListenThread2, pParam);
-				pdlg->m_threads.AddString("listen thread2");
+				//但允许处理数据。同样，按理说这里要加锁，不过问题不大
+				_beginthreadex(NULL, 0, ListenThread2, pParam, 0, NULL);
+				//AfxBeginThread(ListenThread2, pParam);
+				pdlg->m_threads.AddString((LPCTSTR)"listen thread2");
 
 				WSAEventSelect(pdlg->hServSock, newEvent, 0);//取消注册
 				WSACloseEvent(hEventArr[0]);//关闭事件
@@ -123,6 +126,7 @@ UINT __cdecl ListenThread2(LPVOID pParam) {
 			}
 			startIdx = 1;//1
 		}
+		//如果不需要accept，直接到这里
 		for (i = startIdx; i < numOfClntSock; i++)
 		{
 			int sigEventIdx =
@@ -214,9 +218,9 @@ BOOL CEchoseverDlg::OnInitDialog()
 	SetIcon(m_hIcon, FALSE);		// 设置小图标
 
 	// TODO: 在此添加额外的初始化代码
-	m_mode.InsertString(0,"多线程模式");
-	m_mode.InsertString(1,"select框架");
-	m_mode.InsertString(2,"多线程+select");
+	m_mode.InsertString(0, (LPCTSTR)"多线程模式");
+	m_mode.InsertString(1, (LPCTSTR)"select框架");
+	m_mode.InsertString(2, (LPCTSTR)"多线程+select");
 	return TRUE;  // 除非将焦点设置到控件，否则返回 TRUE
 }
 
@@ -283,20 +287,22 @@ void CEchoseverDlg::OnBnClickedButton1()
 	{
 	case 0://多线程,先创建一个监听线程
 	{
-		AfxBeginThread(ListenThread0, (LPVOID)this);
-		m_threads.AddString("listen thread0");
+		_beginthreadex(NULL, 0, ListenThread0, (LPVOID)this, 0, NULL);
+		//AfxBeginThread(ListenThread0, (LPVOID)this);
+		m_threads.AddString((LPCTSTR)"listen thread0");
 	}
 		break;
 	case 1://select
 	{
 		WSAAsyncSelect(hServSock, m_hWnd, WM_SOCK, FD_ACCEPT | FD_READ | FD_CLOSE);
-		m_threads.AddString("listen socket");
+		m_threads.AddString((LPCTSTR)"listen socket");
 	}
 		break;
 	case 2://多线程+select  开启多个线程，每个线程里用slect，获得更大的服务量！
 	{
-		AfxBeginThread(ListenThread2, (LPVOID)this);
-		m_threads.AddString("listen thread2");
+		_beginthreadex(NULL, 0, ListenThread2, (LPVOID)this, 0, NULL);
+		//AfxBeginThread(ListenThread2, (LPVOID)this);
+		m_threads.AddString((LPCTSTR)"listen thread2");
 	}
 		break;
 	default:
@@ -332,7 +338,7 @@ LRESULT CEchoseverDlg::WindowProc(UINT message, WPARAM wParam, LPARAM lParam)
 					closesocket(hSocket);
 					break;
 				}
-				m_threads.AddString("ClntSock");
+				m_threads.AddString((LPCTSTR)"ClntSock");
 			}
 				break;
 			case FD_READ:
