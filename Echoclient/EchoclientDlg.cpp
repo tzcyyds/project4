@@ -62,9 +62,9 @@ UINT __cdecl WorkThreadFunction(LPVOID pParam) {
 		double m_rate = s_MB / (double(time_span.count()) * microseconds::period::num / microseconds::period::den);
 		pdlg->critical_section.Lock();
 		//pdlg->SendRate.push_back(m_rate);
-		char rate[20];
-		sprintf_s(rate, "%f MB/s", m_rate);
-		pdlg->m_RateList.AddString(rate);
+		char ratestr[30];
+		sprintf_s(ratestr, "%f MB/s", m_rate);
+		pdlg->m_RateList.AddString(ratestr);
 		pdlg->critical_section.Unlock();
 
 	}
