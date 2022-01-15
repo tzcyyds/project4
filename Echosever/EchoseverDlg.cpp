@@ -23,7 +23,15 @@ UINT __stdcall WorkThread0(LPVOID pParam) {
 	//阻塞收发
 	while (1) {
 		strLen = recv(hsocket, msg, sizeof(msg), 0);
-		send(hsocket, msg, strLen, 0);
+		if (strLen > 0) {
+			send(hsocket, msg, strLen, 0);
+		}
+		else
+		{
+			closesocket(hsocket);
+			break;
+		}
+		
 	}
 	return 0;
 }
@@ -68,7 +76,7 @@ UINT __stdcall ListenThread2(LPVOID pParam) {
 	WSANETWORKEVENTS netEvents;
 
 	int numOfClntSock = 0;
-	int strLen, i;
+	int strLen = 0, i;
 	int posInfo, startIdx;
 
 	char msg[BUF_SIZE];

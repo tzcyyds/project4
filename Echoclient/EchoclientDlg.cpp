@@ -39,6 +39,7 @@ UINT __stdcall WorkThreadFunction(LPVOID pParam) {
 	std::default_random_engine e;
 	char msg[BUF_SIZE];
 	int sendLen = 0, recvLen = 0;
+	double send_MB = 0.0,accumulate = 0;
 	for (size_t i = 0; i < MAX_TIMES; i++)
 	{
 		using namespace std::chrono;
@@ -60,8 +61,9 @@ UINT __stdcall WorkThreadFunction(LPVOID pParam) {
 		//记录时间和流量
 		auto t2 = steady_clock::now();
 		auto time_span = duration_cast<microseconds>(t2 - t1);//精确到微秒级
-		double s_MB = sendLen * static_cast<double>(8) / 1024 / 1024;
-		double m_rate = s_MB / (double(time_span.count()) * microseconds::period::num / microseconds::period::den);
+		send_MB = sendLen * static_cast<double>(8) / 1024 / 1024;
+		accumulate += send_MB;//发送了多少流量
+		double m_rate = send_MB / (double(time_span.count()) * microseconds::period::num / microseconds::period::den);
 		pdlg->critical_section.Lock();
 		//pdlg->SendRate.push_back(m_rate);
 		char ratestr[20];//这里的缓冲应该足够大，
@@ -72,6 +74,11 @@ UINT __stdcall WorkThreadFunction(LPVOID pParam) {
 	}
 	closesocket(hCommSock);
 	WSACleanup();
+	pdlg->critical_section.Lock();
+	char tempstr[20];//这里的缓冲应该足够大，
+	sprintf_s(tempstr, "%.5f MB", accumulate);
+	pdlg->m_RateList.AddString((LPCTSTR)tempstr);
+	pdlg->critical_section.Unlock();
 	return 0;
 }
 
