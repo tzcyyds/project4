@@ -76,7 +76,7 @@ UINT __stdcall ListenThread2(LPVOID pParam) {
 	WSANETWORKEVENTS netEvents;
 
 	int numOfClntSock = 0;
-	int strLen = 0, i;
+	int strLen = 0, i, sendLen = 0;
 	int posInfo, startIdx;
 
 	char msg[BUF_SIZE];
@@ -159,7 +159,24 @@ UINT __stdcall ListenThread2(LPVOID pParam) {
 					//非阻塞模式，边沿触发吗？不是，一次能收完吗
 					do{
 						strLen = recv(hSockArr[sigEventIdx], msg, sizeof(msg), 0);
-						send(hSockArr[sigEventIdx], msg, strLen, 0);
+						sendLen = send(hSockArr[sigEventIdx], msg, strLen, 0);
+						if (sendLen < strLen) {
+							int retval = WSAGetLastError();
+							if (retval == WSAEWOULDBLOCK) {
+								sendLen = sendLen < 0 ? 0 : sendLen;
+								int new_strLen = strLen - sendLen;
+								while (new_strLen > 0) {
+									Sleep(500);
+									sendLen = send(
+										hSockArr[sigEventIdx]
+										, &msg[sendLen]
+										, new_strLen, 0);//此处更新sendLen
+									sendLen = sendLen < 0 ? 0 : sendLen;
+									new_strLen = new_strLen - sendLen;
+								}
+							}
+							else;//其它错误
+						}
 					} while (strLen > 0);
 				}
 
@@ -302,7 +319,7 @@ void CEchoseverDlg::OnBnClickedButton1()
 		break;
 	case 1://select
 	{
-		WSAAsyncSelect(hServSock, m_hWnd, WM_SOCK, FD_ACCEPT | FD_READ | FD_CLOSE);
+		WSAAsyncSelect(hServSock, m_hWnd, WM_SOCK, FD_ACCEPT | FD_READ | FD_CLOSE | FD_WRITE);
 		m_threads.AddString((LPCTSTR)"listen socket");
 	}
 		break;
@@ -323,6 +340,8 @@ LRESULT CEchoseverDlg::WindowProc(UINT message, WPARAM wParam, LPARAM lParam)
 {
 	SOCKET hSocket;
 	int newEvent;
+	int strLen = 0, sendLen = 0;
+	char msg[BUF_SIZE];
 	// TODO: 在此添加专用代码和/或调用基类
 	switch (m_cur)
 	{
@@ -351,16 +370,29 @@ LRESULT CEchoseverDlg::WindowProc(UINT message, WPARAM wParam, LPARAM lParam)
 				break;
 			case FD_READ:
 			{
-				int strLen = 0;
-				char msg[BUF_SIZE];
 				do {
 					strLen = recv(hSocket, msg, sizeof(msg), 0);
-					send(hSocket, msg, strLen, 0);
+					sendLen = send(hSocket, msg, strLen, 0);
+					if (sendLen < strLen) {
+						int retval = WSAGetLastError();
+						if (retval == WSAEWOULDBLOCK) {
+							strLen = strLen - sendLen;
+							break;//跳出while循环
+						}
+					}
 				} while (strLen > 0);
 			}
 				break;
 			case FD_CLOSE:
 				closesocket(hSocket);
+				break;
+			case FD_WRITE:
+			{
+				sendLen = send(
+					hSocket
+					, &msg[sendLen]
+					, strLen, 0);//此处更新sendLen
+			}
 				break;
 			}
 			break;//中断的是case WM_SOCK:
